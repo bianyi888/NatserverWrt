@@ -1,0 +1,194 @@
+name: Build NatserverWrt RAX3000M eMMC + OAF7.0.1 + daed
+
+on:
+  # 手动触发 (仅测试/紧急用); 正常只由 schedule 在上游有更新时自动构建
+  workflow_dispatch:
+  # 每天检查一次上游是否有新提交 (UTC 00:40 = 北京 08:40), 刻意错开 RE-SS-01 那条 (00:20)
+  schedule:
+    - cron: '40 0 * * *'
+  # 构建成功自动创建 Release, tag 形如 rax3000m-v20260929-abc1234
+
+env:
+  REPO_URL: https://github.com/hanwckf/immortalwrt-mt798x.git
+  REPO_BRANCH: openwrt-21.02
+  CONFIG_FILE: config/rax3000m-emmc-oaf-daede.config
+  DIY_P1_SH: scripts/rax3000m-diy-part1.sh
+  DIY_P2_SH: scripts/rax3000m-diy-part2.sh
+  TZ: Asia/Shanghai
+
+permissions:
+  contents: write
+
+jobs:
+  # 检查上游 hanwckf/immortalwrt-mt798x 是否有新提交 (定时触发时跳过判断, 手动总是构建)
+  check:
+    runs-on: ubuntu-22.04
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      upstream: ${{ steps.check.outputs.upstream }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+    - name: 检查上游更新
+      id: check
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -eu
+        UP=$(git ls-remote "$REPO_URL" "refs/heads/$REPO_BRANCH" | head -1 | cut -f1)
+        SHORT="${UP:0:7}"
+        TAG="rax3000m-v$(date -u +%Y%m%d)-${SHORT}"
+        BUILD=true
+        if [ "${{ github.event_name }}" = "schedule" ]; then
+          if gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | (.tag_name, .name, .body)' | grep -q "$SHORT"; then
+            BUILD=false
+            echo "上游 $SHORT 已有对应发行版, 跳过本次构建"
+          else
+            echo "检测到上游更新: $UP"
+          fi
+        fi
+        echo "upstream=$UP" >> "$GITHUB_OUTPUT"
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+        echo "build=$BUILD tag=$TAG upstream=$UP"
+
+  build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout 本仓库(工作流+配置)
+      uses: actions/checkout@v4
+
+    - name: 初始化编译环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        # 彻底释放 runner 磁盘 (保留 clang/node/runner 本体)
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell \
+          /usr/local/share/swift /usr/local/share/edge_driver /opt/hostedtoolcache \
+          /usr/local/lib/node_modules /usr/local/typescript /usr/local/go /home/linuxbrew \
+          /usr/local/.cache /etc/apt/sources.list.d/*
+        sudo docker image prune --all --force 2>/dev/null || true
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache clang cmake cpio curl device-tree-compiler dwarves ecj fastjar flex gawk gettext git gperf haveged \
+          help2man intltool libacl1-dev libattr1-dev libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev \
+          libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev \
+          libtool libz-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf \
+          python3 python3-pip python3-ply python3-docutils qemu-utils rsync squashfs-tools subversion \
+          swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd yasm zlib1g-dev zstd
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        # BTF 生成需要 pahole (来自 dwarves 包)
+        pahole --version || true
+        df -h
+
+    - name: 克隆 immortalwrt-mt798x 源码
+      run: |
+        git clone --depth 1 --branch $REPO_BRANCH $REPO_URL openwrt
+        ls -lh openwrt/ | head -30
+
+    - name: 自定义 feeds (diy-part1, 加 OAF + daede 源)
+      run: |
+        chmod +x $DIY_P1_SH
+        cd openwrt
+        ../$DIY_P1_SH
+
+    - name: 更新并安装 feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: 自定义配置 (diy-part2, 补内核 BTF/XDP 开关)
+      run: |
+        chmod +x $DIY_P2_SH
+        cd openwrt
+        ../$DIY_P2_SH
+        rm -f .config
+        cp ../$CONFIG_FILE .config
+        make defconfig
+        echo "===== 生效的关键配置 ====="
+        grep -E "mediatek_mt7981|cmcc_rax3000m-emmc|VERSION_DIST|VERSION_NUMBER|PACKAGE_(luci-app-oaf|appfilter|kmod-oaf|dae|daed|luci-app-daede)|KERNEL_(DEBUG_INFO|FTRACE|KPROBES|KPROBE_EVENTS|PERF_EVENTS|CGROUP_BPF)|vmlinux-btf" .config || true
+        echo "===== 内核 generic config 里的 BTF/XDP (diy-part2 打的补丁) ====="
+        grep -E "DEBUG_INFO|XDP_SOCKETS|BPF_EVENTS" target/linux/generic/config-5.4 || true
+        echo "===== 主机工具链 ====="
+        which clang llc opt llvm-strip pahole; clang --version | head -2
+        echo "===== defconfig 后硬检查 (任一失败立即退出, 不浪费编译时间) ====="
+        fail=0
+        check() { if ! grep -q "$1" .config; then echo "FAIL: $1"; fail=1; else echo "OK: $1"; fi; }
+        check "^CONFIG_TARGET_mediatek=y"
+        check "^CONFIG_TARGET_mediatek_mt7981=y"
+        check "^CONFIG_TARGET_mediatek_mt7981_DEVICE_cmcc_rax3000m-emmc=y"
+        check "^CONFIG_DEVEL=y"
+        check "^CONFIG_KERNEL_DEBUG_INFO=y"
+        check "^CONFIG_KERNEL_FTRACE=y"
+        check "^CONFIG_KERNEL_KPROBES=y"
+        check "^CONFIG_KERNEL_KPROBE_EVENTS=y"
+        check "^CONFIG_KERNEL_PERF_EVENTS=y"
+        check "^CONFIG_KERNEL_CGROUP_BPF=y"
+        check "^CONFIG_PACKAGE_luci-app-oaf=y"
+        check "^CONFIG_PACKAGE_appfilter=y"
+        check "^CONFIG_PACKAGE_kmod-oaf=y"
+        check "^CONFIG_PACKAGE_dae=y"
+        check "^CONFIG_PACKAGE_daed=y"
+        check "^CONFIG_PACKAGE_luci-app-daede=y"
+        check "^CONFIG_PACKAGE_vmlinux-btf=[ym]"
+        check "^CONFIG_PACKAGE_kmod-veth=y"
+        gcheck() { if ! grep -q "$1" target/linux/generic/config-5.4; then echo "FAIL(generic): $1"; fail=1; else echo "OK(generic): $1"; fi; }
+        gcheck "^CONFIG_DEBUG_INFO=y"
+        gcheck "^# CONFIG_DEBUG_INFO_REDUCED is not set$"
+        gcheck "^CONFIG_DEBUG_INFO_BTF=y"
+        gcheck "^CONFIG_XDP_SOCKETS=y"
+        gcheck "^CONFIG_BPF_EVENTS=y"
+        if [ "$fail" -ne 0 ]; then echo "ERROR: defconfig 后关键配置丢失"; exit 1; fi
+        echo "所有关键配置校验通过"
+
+    - name: 下载源码包 (make download)
+      run: |
+        cd openwrt
+        make download -j$(nproc)
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: 编译固件
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        make -j$(($(nproc)+1)) || make -j1 V=s
+        echo "BUILD_STATUS=success" >> $GITHUB_ENV
+
+    - name: 整理固件
+      if: env.BUILD_STATUS == 'success'
+      run: |
+        cd openwrt
+        mkdir -p ../firmware
+        # 只保留 RAX3000M eMMC 相关固件 + OAF/dae 包, 避免 artifact 过大
+        find bin/targets/mediatek/mt7981/ -type f \( -name "*cmcc_rax3000m-emmc*" -o -name "*.manifest" -o -name "config.buildinfo" \) -exec cp -v {} ../firmware/ \;
+        find bin/packages/ -type f \( -name "dae_*" -o -name "daed_*" -o -name "luci-app-daede*" -o -name "luci-i18n-daede*" \
+          -o -name "vmlinux-btf*" -o -name "v2ray-geo*" -o -name "luci-app-oaf*" -o -name "appfilter_*" -o -name "kmod-oaf_*" \) 2>/dev/null -exec cp -v {} ../firmware/ \; || true
+        ls -lh ../firmware/
+
+    - name: 上传固件到 Artifact
+      uses: actions/upload-artifact@v4
+      if: env.BUILD_STATUS == 'success'
+      with:
+        name: natserverwrt-rax3000m-emmc-oaf-daed
+        path: firmware/*
+
+    - name: 发布到 Release
+      if: env.BUILD_STATUS == 'success'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.check.outputs.tag }}
+        name: RAX3000M eMMC + OAF7.0.1 + daed ${{ needs.check.outputs.tag }}
+        target_commitish: ${{ github.sha }}
+        files: firmware/*
+        body: |
+          CMCC RAX3000M eMMC 一体固件, 基于 hanwckf/immortalwrt-mt798x@openwrt-21.02 (OAF 固件同款底座),
+          内置 OpenAppFilter 7.0.1 (OAF) 与 dae/daed 全家桶。
+
+          上游同步: hanwckf/immortalwrt-mt798x@${{ needs.check.outputs.upstream }}
