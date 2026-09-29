@@ -40,11 +40,49 @@ fi
 # KPROBES / KPROBE_EVENTS / FTRACE 走 .config 的 CONFIG_KERNEL_* (21.02 Config-kernel.in 里有这些符号),
 # 不用改源码, 只在下面校验一下确实是可用符号。
 CK=config/Config-kernel.in
-for sym in KERNEL_DEBUG_INFO KERNEL_FTRACE KERNEL_KPROBES KERNEL_KPROBE_EVENTS KERNEL_PERF_EVENTS KERNEL_CGROUP_BPF; do
-  if grep -q "^config $sym$" "$CK"; then
+# 注意: if 块里的符号带缩进, 所以用 ^\s*config 而不是 ^config
+for sym in KERNEL_DEBUG_INFO KERNEL_FTRACE KERNEL_KPROBES KERNEL_KPROBE_EVENTS KERNEL_PERF_EVENTS KERNEL_CGROUPS KERNEL_CGROUP_BPF; do
+  if grep -qE "^[[:space:]]*config $sym$" "$CK"; then
     ok "Config-kernel.in 有 $sym"
   else
     err "Config-kernel.in 缺少 $sym"
+  fi
+done
+
+# 确认装进 package/ 的 OAF 是 destan19 的 7.0.1, 而不是 immortalwrt/packages 的同名包
+# (两个 feed 都有 appfilter, 谁先被 feeds install 谁生效, 所以逐个核对 PKG_VERSION)
+AF_MKS=$(grep -Rsl "PKG_NAME:=appfilter" package/feeds/ 2>/dev/null)
+if [ -z "$AF_MKS" ]; then
+  err "package/feeds 里找不到 appfilter"
+else
+  for mk in $AF_MKS; do
+    if grep -q "PKG_VERSION:=7.0.1" "$mk"; then
+      ok "appfilter = 7.0.1 ($mk)"
+    else
+      err "appfilter 不是 7.0.1: $mk ($(grep -m1 'PKG_VERSION' "$mk" || echo '?'))"
+    fi
+  done
+fi
+
+for mk in $(grep -Rsl "KernelPackage/oaf" package/feeds/ 2>/dev/null); do
+  case "$mk" in
+    package/feeds/oaf/*) ok "kmod-oaf 来自 destan19 ($mk)" ;;
+    *) err "kmod-oaf 不是 destan19 的: $mk" ;;
+  esac
+done
+[ -n "$(grep -Rsl 'KernelPackage/oaf' package/feeds/ 2>/dev/null)" ] || err "package/feeds 里找不到 kmod-oaf"
+
+if [ -e package/feeds/packages/open-app-filter ]; then
+  err "immortalwrt/packages 的 open-app-filter 也装上了, 会和 destan19 的 7.0.1 打架"
+else
+  ok "immortalwrt/packages 的 open-app-filter 已被 oaf feed 覆盖"
+fi
+
+for p in luci-app-oaf dae daed luci-app-daede vmlinux-btf; do
+  if [ -n "$(find package/feeds -mindepth 2 -maxdepth 2 -name "$p" 2>/dev/null)" ]; then
+    ok "$p 已装入 package/feeds"
+  else
+    err "$p 没有装入 package/feeds"
   fi
 done
 
