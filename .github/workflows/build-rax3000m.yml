@@ -156,6 +156,16 @@ jobs:
         gcheck "^CONFIG_DEBUG_INFO_BTF=y"
         gcheck "^CONFIG_XDP_SOCKETS=y"
         gcheck "^CONFIG_BPF_EVENTS=y"
+        echo "===== ustream 变体 (必须只有一个, 否则 opkg check_data_file_clashes 必挂) ====="
+        grep -E '^CONFIG_PACKAGE_libustream|^CONFIG_PACKAGE_luci-ssl|^CONFIG_PACKAGE_px5g|^CONFIG_PACKAGE_openssl-util' .config || true
+        echo "----- 反查 tmp/.packageinfo 里谁依赖 libustream-* -----"
+        awk '/^Package: /{p=$2} /^Depends:/{if ($0 ~ /libustream-/) print "  " p " -> " $0}' tmp/.packageinfo 2>/dev/null || true
+        n_ustream=$(grep -c '^CONFIG_PACKAGE_libustream-[a-z0-9]*=y$' .config || true)
+        if [ "$n_ustream" != "1" ]; then echo "FAIL: 启用了 $n_ustream 个 libustream 变体 (应为 1)"; fail=1; else echo "OK: libustream 变体数 = 1"; fi
+        check "^CONFIG_PACKAGE_luci-ssl-openssl=y"
+        check "^# CONFIG_PACKAGE_luci-ssl is not set$"
+        check "^# CONFIG_PACKAGE_libustream-wolfssl is not set$"
+        check "^CONFIG_PACKAGE_libustream-openssl=y"
         if [ ! -f include/bpf.mk ]; then echo "FAIL: include/bpf.mk 缺失"; fail=1; fi
         if ! grep -q "GEOSITE_VER:=20260731025111" feeds/packages/net/v2ray-geodata/Makefile; then echo "FAIL: v2ray-geodata 未打补丁"; fail=1; fi
         if [ "$fail" -ne 0 ]; then echo "ERROR: defconfig 后关键配置丢失"; exit 1; fi
