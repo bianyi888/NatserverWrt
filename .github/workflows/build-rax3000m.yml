@@ -150,6 +150,11 @@ jobs:
         check "^CONFIG_DAE_USE_KERNEL_BTF=y"
         check "^CONFIG_DAED_USE_KERNEL_BTF=y"
         check "^# CONFIG_PACKAGE_vmlinux-btf is not set$"
+        echo "===== 固件版本标识 (决定文件名前缀) ====="
+        grep -E '^CONFIG_VERSION' .config || true
+        check '^CONFIG_VERSION_DIST="ImmortalWrt-mt798x"$'
+        check '^CONFIG_VERSION_NUMBER="21.02-oaf7.0.1-daed"$'
+        check "^CONFIG_VERSION_FILENAMES=y"
         gcheck() { if ! grep -q "$1" target/linux/generic/config-5.4; then echo "FAIL(generic): $1"; fail=1; else echo "OK(generic): $1"; fi; }
         gcheck "^CONFIG_DEBUG_INFO=y"
         gcheck "^# CONFIG_DEBUG_INFO_REDUCED is not set$"

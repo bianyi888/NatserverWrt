@@ -5,7 +5,8 @@
 #   2. include/bpf.mk (21.02 根本没有, dae/daed 的 Makefile 会 include, 缺了连 make 解析都会失败)
 #   3. config/Config-kernel.in: 补 KERNEL_DEBUG_INFO_BTF (dae/daed 的 BTF source 选项靠它)
 #   4. feeds/packages/net/v2ray-geodata: 上游 2023 的 dlc.dat 已被删 (404), 换成仍存活的 tag
-#   5. 主机名 / 版本描述
+#   5. config/Config-build.in: 补 Image configuration (VERSION_DIST/VERSION_NUMBER), 否则固件名无标识
+#   6. 主机名 / 版本描述
 
 fail=0
 err() { echo "ERROR: $1" >&2; fail=1; }
@@ -104,6 +105,40 @@ if [ -f "$GEO_MK" ]; then
     && ok "v2ray-geodata geosite 已指向 $GEO_VER" || err "v2ray-geodata 打补丁失败"
 else
   err "找不到 $GEO_MK"
+fi
+
+# ---------- 1e. 补 Image configuration (VERSION_DIST / VERSION_NUMBER / VERSION_FILENAMES) ----------
+# 这棵树把 config/ 里的 Image configuration 菜单删了, 所以 .config 里写 CONFIG_VERSION_* 会被
+# make defconfig 直接丢掉 -> 固件名只剩默认的 immortalwrt-xxx。这里把符号补回来。
+CBI=config/Config-build.in
+if grep -qE "^[[:space:]]*config VERSION_DIST$" "$CBI"; then
+  ok "Config-build.in 已有 VERSION_DIST"
+else
+  cat >> "$CBI" <<'EOF'
+
+menu "Image configuration"
+	config VERSION_DIST
+		string "Distribution name"
+		default "ImmortalWrt"
+		help
+		  Name used as the image filename prefix and in /etc/openwrt_release.
+	config VERSION_NUMBER
+		string "Identifier for the release"
+		default "21.02-SNAPSHOT"
+	config VERSION_CODE
+		string "Code revision identifier"
+		default ""
+	config VERSION_FILENAMES
+		bool "Include release version in firmware filenames"
+		default n
+	config VERSION_CODE_FILENAMES
+		bool "Include code revision in firmware filenames"
+		depends on VERSION_FILENAMES
+		default n
+endmenu
+EOF
+  grep -qE "^[[:space:]]*config VERSION_DIST$" "$CBI" \
+    && ok "已补 Image configuration 到 Config-build.in" || err "补 VERSION_DIST 失败"
 fi
 
 # KPROBES / KPROBE_EVENTS / FTRACE 走 .config 的 CONFIG_KERNEL_* (21.02 Config-kernel.in 里有这些符号),
