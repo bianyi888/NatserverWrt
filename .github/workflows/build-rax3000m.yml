@@ -6,7 +6,8 @@ on:
   # 每天检查一次上游是否有新提交 (UTC 00:40 = 北京 08:40), 刻意错开 RE-SS-01 那条 (00:20)
   schedule:
     - cron: '40 0 * * *'
-  # 构建成功自动创建 Release, tag 形如 rax3000m-v20260929-abc1234
+  # 构建成功自动创建 Release, tag 形如 rax3000m-v20260929-abc1234-r7
+  # (后缀 -r<run number> 使每次构建各自成条; 去重仍按上游短SHA 匹配, 不受影响)
 
 env:
   REPO_URL: https://github.com/hanwckf/immortalwrt-mt798x.git
@@ -36,7 +37,7 @@ jobs:
         set -eu
         UP=$(git ls-remote "$REPO_URL" "refs/heads/$REPO_BRANCH" | head -1 | cut -f1)
         SHORT="${UP:0:7}"
-        TAG="rax3000m-v$(date -u +%Y%m%d)-${SHORT}"
+        TAG="rax3000m-v$(date -u +%Y%m%d)-${SHORT}-r${GITHUB_RUN_NUMBER}"
         BUILD=true
         if [ "${{ github.event_name }}" = "schedule" ]; then
           if gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | (.tag_name, .name, .body)' | grep -q "$SHORT"; then
@@ -208,8 +209,8 @@ jobs:
         name: natserverwrt-rax3000m-emmc-oaf-daed
         path: firmware/*
 
-    # tag 由上游 commit 决定, 手动重建会命中同一个 tag; 上一版没有 VERSION_DIST 前缀的旧命名固件
-    # 会被 action-gh-release 原样保留, 这里先清掉, 免得同一个 release 里躺着两份不同名的固件。
+    # tag 现已带 -r<run number> 后缀, 通常每个 release 首次出现; 此步骤仅作兜底,
+    # 防止同 tag 被重建时残留没有 VERSION_DIST 前缀的旧命名固件。
     - name: 清理旧命名固件资产
       if: env.BUILD_STATUS == 'success'
       env:
