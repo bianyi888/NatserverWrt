@@ -208,6 +208,28 @@ jobs:
         name: natserverwrt-rax3000m-emmc-oaf-daed
         path: firmware/*
 
+    # tag 由上游 commit 决定, 手动重建会命中同一个 tag; 上一版没有 VERSION_DIST 前缀的旧命名固件
+    # 会被 action-gh-release 原样保留, 这里先清掉, 免得同一个 release 里躺着两份不同名的固件。
+    - name: 清理旧命名固件资产
+      if: env.BUILD_STATUS == 'success'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG="${{ needs.check.outputs.tag }}"
+        if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          echo "release $TAG 尚不存在, 跳过清理"
+          exit 0
+        fi
+        ids=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[] | select(.name | startswith("immortalwrt-mediatek-")) | .id')
+        if [ -z "$ids" ]; then
+          echo "没有旧命名资产"
+          exit 0
+        fi
+        for id in $ids; do
+          echo "删除旧资产 id=$id"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
+        done
+
     - name: 发布到 Release
       if: env.BUILD_STATUS == 'success'
       uses: softprops/action-gh-release@v2
