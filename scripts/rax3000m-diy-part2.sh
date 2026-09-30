@@ -1,6 +1,11 @@
 #!/bin/bash
 # rax3000m diy-part2: 在 ./scripts/feeds install -a 之后、cp .config 之前执行, 工作目录 = openwrt/
-# 只补 21.02 (kernel 5.4) 缺的 dae/daed 内核开关 + 做主机名/描述的最小改动, 其余代码不动。
+# 只补 21.02 (kernel 5.4 / OpenWrt 21.02) 缺的 dae/daed 依赖 + 最小品牌改动, 其余代码不动:
+#   1. target/linux/generic/config-5.4: DEBUG_INFO/BTF/XDP/BPF_EVENTS
+#   2. include/bpf.mk (21.02 根本没有, dae/daed 的 Makefile 会 include, 缺了连 make 解析都会失败)
+#   3. config/Config-kernel.in: 补 KERNEL_DEBUG_INFO_BTF (dae/daed 的 BTF source 选项靠它)
+#   4. feeds/packages/net/v2ray-geodata: 上游 2023 的 dlc.dat 已被删 (404), 换成仍存活的 tag
+#   5. 主机名 / 版本描述
 
 fail=0
 err() { echo "ERROR: $1" >&2; fail=1; }
@@ -35,6 +40,70 @@ else
   grep -q '^CONFIG_DEBUG_INFO_BTF=y'       "$GK" && ok "generic config: DEBUG_INFO_BTF=y"      || err "DEBUG_INFO_BTF 未打开"
   grep -q '^CONFIG_XDP_SOCKETS=y'          "$GK" && ok "generic config: XDP_SOCKETS=y"         || err "XDP_SOCKETS 未打开"
   grep -q '^CONFIG_BPF_EVENTS=y'           "$GK" && ok "generic config: BPF_EVENTS=y"          || err "BPF_EVENTS 未打开"
+fi
+
+# ---------- 1b. 补 include/bpf.mk: 21.02 树里没有, 而 dae/daed 的 Makefile 都 include 它 ----------
+# 没有它 make 解析 Makefile 就会报 "No such file", 导致 dae/daed 连 download/compile 目标都跑不到。
+BPF_MK_SRC=""
+for c in ../scripts/rax3000m-bpf.mk scripts/rax3000m-bpf.mk; do
+  [ -f "$c" ] && BPF_MK_SRC="$c" && break
+done
+if [ -f include/bpf.mk ]; then
+  ok "include/bpf.mk 已存在"
+elif [ -n "$BPF_MK_SRC" ]; then
+  cp "$BPF_MK_SRC" include/bpf.mk && ok "已补上 include/bpf.mk (来自 $BPF_MK_SRC)" || err "补 include/bpf.mk 失败"
+else
+  err "找不到 rax3000m-bpf.mk"
+fi
+if [ -f include/bpf.mk ] && grep -q 'BPF_KARCH:=' include/bpf.mk && grep -q 'BPF_HEADERS_DIR:=' include/bpf.mk \
+   && grep -q 'ifneq ($(TOPDIR),)' include/bpf.mk; then
+  ok "include/bpf.mk 内容正确 (BPF_KARCH / BPF_HEADERS_DIR / 强制走系统 clang)"
+else
+  err "include/bpf.mk 内容不对"
+fi
+
+# ---------- 1c. 补 KERNEL_DEBUG_INFO_BTF (21.02 的 Config-kernel.in 没有这个符号) ----------
+# dae/daed 的 Makefile 里 choice 依赖 KERNEL_DEBUG_INFO_BTF, 符号不存在时只能退到
+# vmlinux-btf 那条路 (要额外整棵树编一遍 shadow kernel, 又慢又容易挂), 所以这里补上。
+CKI=config/Config-kernel.in
+if grep -qE "^[[:space:]]*config KERNEL_DEBUG_INFO_BTF$" "$CKI"; then
+  ok "Config-kernel.in 已有 KERNEL_DEBUG_INFO_BTF"
+else
+  awk '
+    /^config KERNEL_DEBUG_INFO$/ { seen=1; print; next }
+    seen == 1 && /^config / {
+      print "config KERNEL_DEBUG_INFO_BTF"
+      print "\tbool \"Compile with BPF Type Format (BTF) information\""
+      print "\tdepends on KERNEL_DEBUG_INFO"
+      print "\tdefault y"
+      print "\thelp"
+      print "\t  Generate BTF type info so CO-RE eBPF programs (dae/daed) can load."
+      print "\t  Requires pahole (dwarves) on the build host."
+      print ""
+      seen=2
+    }
+    { print }
+  ' "$CKI" > "$CKI.new" && mv "$CKI.new" "$CKI"
+  grep -qE "^[[:space:]]*config KERNEL_DEBUG_INFO_BTF$" "$CKI" \
+    && ok "已补 KERNEL_DEBUG_INFO_BTF 到 Config-kernel.in" || err "补 KERNEL_DEBUG_INFO_BTF 失败"
+fi
+
+# ---------- 1d. v2ray-geodata: 上游删掉了 2023 的 dlc.dat 资源, 换成仍存活的 tag ----------
+GEO_MK=feeds/packages/net/v2ray-geodata/Makefile
+GEO_VER=20260731025111
+GEO_HASH=e2045f0da8823eb6edac0e08e56ac3b02edc94810d4e767c02d209bbb94efaa0
+if [ -f "$GEO_MK" ]; then
+  awk -v ver="$GEO_VER" -v hash="$GEO_HASH" '
+    /^GEOSITE_VER:=/ { print "GEOSITE_VER:=" ver; next }
+    /^define Download\/geosite$/ { inb=1; print; next }
+    inb && /^ *HASH:=/ { print "  HASH:=" hash; next }
+    inb && /^endef$/ { inb=0 }
+    { print }
+  ' "$GEO_MK" > "$GEO_MK.new" && mv "$GEO_MK.new" "$GEO_MK"
+  grep -q "GEOSITE_VER:=$GEO_VER" "$GEO_MK" && grep -q "HASH:=$GEO_HASH" "$GEO_MK" \
+    && ok "v2ray-geodata geosite 已指向 $GEO_VER" || err "v2ray-geodata 打补丁失败"
+else
+  err "找不到 $GEO_MK"
 fi
 
 # KPROBES / KPROBE_EVENTS / FTRACE 走 .config 的 CONFIG_KERNEL_* (21.02 Config-kernel.in 里有这些符号),

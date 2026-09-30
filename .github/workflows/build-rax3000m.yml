@@ -112,9 +112,13 @@ jobs:
         cp ../$CONFIG_FILE .config
         make defconfig
         echo "===== 生效的关键配置 ====="
-        grep -E "mediatek_mt7981|cmcc_rax3000m-emmc|VERSION_DIST|VERSION_NUMBER|PACKAGE_(luci-app-oaf|appfilter|kmod-oaf|dae|daed|luci-app-daede)|KERNEL_(DEBUG_INFO|FTRACE|KPROBES|KPROBE_EVENTS|PERF_EVENTS|CGROUP_BPF)|vmlinux-btf" .config || true
+        grep -E "mediatek_mt7981|cmcc_rax3000m-emmc|VERSION_DIST|VERSION_NUMBER|PACKAGE_(luci-app-oaf|appfilter|kmod-oaf|dae|daed|luci-app-daede|vmlinux-btf|v2ray-geo|ip-full|kmod-sched-bpf)|DAE_USE|KERNEL_(DEBUG_INFO|FTRACE|KPROBES|KPROBE_EVENTS|PERF_EVENTS|CGROUP_BPF)" .config || true
         echo "===== 内核 generic config 里的 BTF/XDP (diy-part2 打的补丁) ====="
         grep -E "DEBUG_INFO|XDP_SOCKETS|BPF_EVENTS" target/linux/generic/config-5.4 || true
+        echo "===== bpf.mk / Config-kernel.in 补丁 ====="
+        grep -c "BPF_KARCH:=" include/bpf.mk || true
+        grep -c "config KERNEL_DEBUG_INFO_BTF" config/Config-kernel.in || true
+        grep -E "GEOSITE_VER:=|HASH:=" feeds/packages/net/v2ray-geodata/Makefile || true
         echo "===== 主机工具链 ====="
         which clang llc opt llvm-strip pahole; clang --version | head -2
         echo "===== defconfig 后硬检查 (任一失败立即退出, 不浪费编译时间) ====="
@@ -125,6 +129,7 @@ jobs:
         check "^CONFIG_TARGET_mediatek_mt7981_DEVICE_cmcc_rax3000m-emmc=y"
         check "^CONFIG_DEVEL=y"
         check "^CONFIG_KERNEL_DEBUG_INFO=y"
+        check "^CONFIG_KERNEL_DEBUG_INFO_BTF=y"
         check "^CONFIG_KERNEL_FTRACE=y"
         check "^CONFIG_KERNEL_KPROBES=y"
         check "^CONFIG_KERNEL_KPROBE_EVENTS=y"
@@ -136,14 +141,23 @@ jobs:
         check "^CONFIG_PACKAGE_dae=y"
         check "^CONFIG_PACKAGE_daed=y"
         check "^CONFIG_PACKAGE_luci-app-daede=y"
-        check "^CONFIG_PACKAGE_vmlinux-btf=[ym]"
+        check "^CONFIG_PACKAGE_v2ray-geoip=y"
+        check "^CONFIG_PACKAGE_v2ray-geosite=y"
+        check "^CONFIG_PACKAGE_kmod-sched-core=y"
+        check "^CONFIG_PACKAGE_kmod-sched-bpf=y"
         check "^CONFIG_PACKAGE_kmod-veth=y"
+        check "^CONFIG_PACKAGE_ip-full=y"
+        check "^CONFIG_DAE_USE_KERNEL_BTF=y"
+        check "^CONFIG_DAED_USE_KERNEL_BTF=y"
+        check "^# CONFIG_PACKAGE_vmlinux-btf is not set$"
         gcheck() { if ! grep -q "$1" target/linux/generic/config-5.4; then echo "FAIL(generic): $1"; fail=1; else echo "OK(generic): $1"; fi; }
         gcheck "^CONFIG_DEBUG_INFO=y"
         gcheck "^# CONFIG_DEBUG_INFO_REDUCED is not set$"
         gcheck "^CONFIG_DEBUG_INFO_BTF=y"
         gcheck "^CONFIG_XDP_SOCKETS=y"
         gcheck "^CONFIG_BPF_EVENTS=y"
+        if [ ! -f include/bpf.mk ]; then echo "FAIL: include/bpf.mk 缺失"; fail=1; fi
+        if ! grep -q "GEOSITE_VER:=20260731025111" feeds/packages/net/v2ray-geodata/Makefile; then echo "FAIL: v2ray-geodata 未打补丁"; fail=1; fi
         if [ "$fail" -ne 0 ]; then echo "ERROR: defconfig 后关键配置丢失"; exit 1; fi
         echo "所有关键配置校验通过"
 
