@@ -113,7 +113,7 @@ jobs:
         cp ../$CONFIG_FILE .config
         make defconfig
         echo "===== 生效的关键配置 ====="
-        grep -E "mediatek_mt7981|cmcc_rax3000m-emmc|VERSION_DIST|VERSION_NUMBER|PACKAGE_(luci-app-oaf|appfilter|kmod-oaf|dae|daed|luci-app-daede|vmlinux-btf|v2ray-geo|ip-full|kmod-sched-bpf)|DAE_USE|KERNEL_(DEBUG_INFO|FTRACE|KPROBES|KPROBE_EVENTS|PERF_EVENTS|CGROUP_BPF)" .config || true
+        grep -E "mediatek_mt7981|cmcc_rax3000m-emmc|VERSION_DIST|VERSION_NUMBER|PACKAGE_(luci-app-oaf|appfilter|kmod-oaf|dae|daed|luci-app-daede|vmlinux-btf|v2ray-geo|ip-full|kmod-sched-bpf|luci-app-store|luci-theme-argon|luci-compat)|DAE_USE|KERNEL_(DEBUG_INFO|FTRACE|KPROBES|KPROBE_EVENTS|PERF_EVENTS|CGROUP_BPF)" .config || true
         echo "===== 内核 generic config 里的 BTF/XDP (diy-part2 打的补丁) ====="
         grep -E "DEBUG_INFO|XDP_SOCKETS|BPF_EVENTS" target/linux/generic/config-5.4 || true
         echo "===== bpf.mk / Config-kernel.in 补丁 ====="
@@ -151,6 +151,24 @@ jobs:
         check "^CONFIG_DAE_USE_KERNEL_BTF=y"
         check "^CONFIG_DAED_USE_KERNEL_BTF=y"
         check "^# CONFIG_PACKAGE_vmlinux-btf is not set$"
+        echo "===== iStore 应用商店 + argon 主题 ====="
+        grep -E '^CONFIG_PACKAGE_(luci-app-store|luci-lib-taskd|luci-lib-xterm|taskd|luci-compat|luci-theme-argon|mount-utils|libuci-lua)=' .config || true
+        check "^CONFIG_PACKAGE_luci-app-store=y"
+        check "^CONFIG_PACKAGE_luci-lib-taskd=y"
+        check "^CONFIG_PACKAGE_luci-lib-xterm=y"
+        check "^CONFIG_PACKAGE_taskd=y"
+        check "^CONFIG_PACKAGE_luci-compat=y"
+        check "^CONFIG_PACKAGE_luci-theme-argon=y"
+        if [ ! -f package/luci-theme-argon/Makefile ]; then echo "FAIL: package/luci-theme-argon/Makefile 缺失"; fail=1; else echo "OK: luci-theme-argon 源码就位"; fi
+        for f in package/base-files/files/usr/sbin/istore-setup package/base-files/files/etc/opkg/istore.conf package/base-files/files/etc/uci-defaults/99-set-argon-theme; do
+          if [ ! -f "$f" ]; then echo "FAIL: $f 缺失"; fail=1; else echo "OK: $f"; fi
+        done
+        echo "===== 分区诊断工具 ====="
+        grep -E '^CONFIG_PACKAGE_(fdisk|lsblk|blkid|partx-utils)=' .config || true
+        check "^CONFIG_PACKAGE_fdisk=y"
+        check "^CONFIG_PACKAGE_lsblk=y"
+        check "^CONFIG_PACKAGE_blkid=y"
+        check "^CONFIG_PACKAGE_partx-utils=y"
         echo "===== 固件版本标识 (决定文件名前缀) ====="
         grep -E '^CONFIG_VERSION' .config || true
         check '^CONFIG_VERSION_DIST="ImmortalWrt-mt798x"$'
@@ -236,11 +254,15 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ needs.check.outputs.tag }}
-        name: RAX3000M eMMC + OAF7.0.1 + daed ${{ needs.check.outputs.tag }}
+        name: RAX3000M eMMC + OAF7.0.1 + daed + iStore ${{ needs.check.outputs.tag }}
         target_commitish: ${{ github.sha }}
         files: firmware/*
         body: |
           CMCC RAX3000M eMMC 一体固件, 基于 hanwckf/immortalwrt-mt798x@openwrt-21.02 (OAF 固件同款底座),
-          内置 OpenAppFilter 7.0.1 (OAF) 与 dae/daed 全家桶。
+          内置 OpenAppFilter 7.0.1 (OAF)、dae/daed 全家桶、iStore 应用商店与 luci-theme-argon 主题。
+
+          **iStore**: luci-app-store 及依赖已源码编译进固件, 首次开机可直接用; 商店升级/损坏时
+          SSH 执行 `/usr/sbin/istore-setup`(与参考 imm.sh 同逻辑)。iStore 的 opkg 源已写入
+          `/etc/opkg/istore.conf`。
 
           上游同步: hanwckf/immortalwrt-mt798x@${{ needs.check.outputs.upstream }}

@@ -20,5 +20,21 @@ if ! grep -qF "kenzok8/openwrt-daede" feeds.conf.default; then
   echo 'src-git daede https://github.com/kenzok8/openwrt-daede.git' >> feeds.conf.default
 fi
 
+# iStore 应用商店 (linkease/istore) —— 与参考脚本 imm.sh 装的是同一套包:
+#   luci-app-store + luci-lib-taskd + luci-lib-xterm + taskd
+# 源码编译进固件, 首次开机不依赖外网; 后续升级商店可直接跑 /usr/sbin/istore-setup。
+# 该 feed 根目录下没有 Makefile, 包在 luci/ 二级目录, scripts/feeds 递归扫描能识别。
+if ! grep -qF "linkease/istore" feeds.conf.default; then
+  echo 'src-git istore https://github.com/linkease/istore.git' >> feeds.conf.default
+fi
+
+# iStore 同款主题 luci-theme-argon —— OpenWrt 21.02 必须用 luci-21 分支
+# (master 面向新版 LuCI, 21.02 编不过)。放 package/ 而不是 feed, 免得 depth 不够扫不到。
+if [ ! -f package/luci-theme-argon/Makefile ]; then
+  rm -rf package/luci-theme-argon
+  git clone --depth 1 -b luci-21 https://github.com/jjm2473/luci-theme-argon.git package/luci-theme-argon \
+    || echo "WARN: 克隆 luci-theme-argon 失败 (网络?), 会在 diy-part2 检查时报错"
+fi
+
 echo "===== feeds.conf.default ====="
 cat feeds.conf.default

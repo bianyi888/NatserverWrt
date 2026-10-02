@@ -7,6 +7,7 @@
 #   4. feeds/packages/net/v2ray-geodata: 上游 2023 的 dlc.dat 已被删 (404), 换成仍存活的 tag
 #   5. config/Config-build.in: 补 Image configuration (VERSION_DIST/VERSION_NUMBER), 否则固件名无标识
 #   6. 主机名 / 版本描述
+#   7. iStore: 放 /usr/sbin/istore-setup (imm.sh 的逻辑) + iStore opkg 源 + argon 主题切换
 
 fail=0
 err() { echo "ERROR: $1" >&2; fail=1; }
@@ -141,6 +142,110 @@ EOF
     && ok "已补 Image configuration 到 Config-build.in" || err "补 VERSION_DIST 失败"
 fi
 
+# ---------- 1f. iStore 应用商店 + iStoreOS 主题 ----------
+# 商店本身由 diypart1 加的 linkease/istore feed 源码编译进固件(离线可用);
+# 这里再放三样东西兜底:
+#   a) /usr/sbin/istore-setup —— 参考脚本 imm.sh 的完整逻辑, 商店损坏或要升级时手跑一次即可
+#   b) /etc/opkg/istore.conf  —— 把 iStore 的 opkg 源写进固件, 商店后续装应用/升级有源可用
+#   c) /etc/uci-defaults/99   —— 首次开机把默认主题切到 argon (仅当当前还是 bootstrap)
+BF=package/base-files/files
+mkdir -p "$BF/usr/sbin" "$BF/etc/opkg" "$BF/etc/uci-defaults" || err "创建 base-files 目录失败"
+
+if [ -f "$BF/usr/sbin/istore-setup" ]; then
+  ok "istore-setup 已存在"
+else
+  cat > "$BF/usr/sbin/istore-setup" <<'ISTORE_EOF'
+#!/bin/sh
+# iStore 应用商店 安装 / 修复脚本
+# 逻辑与参考脚本 imm.sh 完全一致:
+#   https://cafe.cpolar.top/wkdaily/zero3/raw/branch/main/zero3/imm.sh
+# 参考: https://github.com/linkease/istore
+# 用法: istore-setup   (可重复执行, 商店升级/损坏时跑一次)
+
+ISTORE_REPO=https://istore.istoreos.com/repo/all/store
+FCURL="curl --fail --show-error --location"
+
+log() { echo "[istore-setup] $*"; }
+
+curl -V >/dev/null 2>&1 || {
+	log "prereq: install curl"
+	opkg info curl | grep -Fqm1 curl || opkg update
+	opkg install curl
+}
+
+IPK=$($FCURL "$ISTORE_REPO/Packages.gz" | zcat | grep -m1 '^Filename: luci-app-store.*\.ipk$' | sed -n -e 's/^Filename: \(.\+\)$/\1/p')
+[ -n "$IPK" ] || { log "fail: $ISTORE_REPO 里找不到 luci-app-store"; exit 1; }
+log "found $IPK"
+
+$FCURL "$ISTORE_REPO/$IPK" | tar -xzO ./data.tar.gz | tar -xzO ./bin/is-opkg > /tmp/is-opkg
+[ -s "/tmp/is-opkg" ] || { log "fail: 解不出 /bin/is-opkg"; exit 1; }
+
+chmod 755 /tmp/is-opkg
+/tmp/is-opkg update
+/tmp/is-opkg opkg install --force-reinstall luci-lib-taskd luci-lib-xterm
+/tmp/is-opkg opkg install --force-reinstall luci-app-store || exit $?
+[ -s "/etc/init.d/tasks" ] || /tmp/is-opkg opkg install --force-reinstall taskd
+[ -s "/usr/lib/lua/luci/cbi.lua" ] || /tmp/is-opkg opkg install luci-compat >/dev/null 2>&1
+
+# 换源: 部分脚本/页面里还写死着旧域名
+for f in /bin/is-opkg /etc/opkg/compatfeeds.conf /www/luci-static/istore/index.js; do
+	[ -f "$f" ] && sed -i 's/istore.linkease.com/istore.istoreos.com/g' "$f"
+done
+
+log "done"
+ISTORE_EOF
+  chmod 755 "$BF/usr/sbin/istore-setup" && ok "已写入 /usr/sbin/istore-setup" || err "写 istore-setup 失败"
+fi
+
+# iStore 的 opkg 源 (商店里装应用 / 升级商店都走这里)
+if [ -f "$BF/etc/opkg/istore.conf" ]; then
+  ok "opkg/istore.conf 已存在"
+else
+  cat > "$BF/etc/opkg/istore.conf" <<'ISTORE_SRC_EOF'
+src/gz istore_store https://istore.istoreos.com/repo/all/store
+ISTORE_SRC_EOF
+  ok "已写入 /etc/opkg/istore.conf"
+fi
+
+# 默认主题切到 argon; 只在当前是 bootstrap(出厂默认) 时改, 免得覆盖用户自己选的主题
+if [ -f "$BF/etc/uci-defaults/99-set-argon-theme" ]; then
+  ok "uci-defaults/99-set-argon-theme 已存在"
+else
+  cat > "$BF/etc/uci-defaults/99-set-argon-theme" <<'THEME_EOF'
+#!/bin/sh
+cur=$(uci -q get luci.main.mediaurlbase)
+case "$cur" in
+  ""|/luci-static/bootstrap)
+    uci -q set luci.main.mediaurlbase=/luci-static/argon
+    uci -q commit luci
+    ;;
+esac
+exit 0
+THEME_EOF
+  chmod 755 "$BF/etc/uci-defaults/99-set-argon-theme" && ok "已写入 uci-defaults 切换 argon 主题" || err "写 argon uci-defaults 失败"
+fi
+
+# 主题包必须真的进来了 (diy-part1 克隆 luci-21 分支)
+if [ -f package/luci-theme-argon/Makefile ]; then
+  ok "luci-theme-argon 源码就位 (package/luci-theme-argon)"
+else
+  err "package/luci-theme-argon/Makefile 不存在 (diy-part1 克隆失败)"
+fi
+
+# iStore feed 必须真的 install 进 package/feeds
+if [ -n "$(find package/feeds/istore -maxdepth 2 -name luci-app-store 2>/dev/null)" ]; then
+  ok "luci-app-store 已装入 package/feeds/istore"
+else
+  err "luci-app-store 没装入 package/feeds (diy-part1 的 istore feed 没生效)"
+fi
+for p in luci-lib-taskd luci-lib-xterm taskd; do
+  if [ -n "$(find package/feeds/istore -maxdepth 2 -name "$p" 2>/dev/null)" ]; then
+    ok "$p 已装入 package/feeds/istore"
+  else
+    err "$p 没装入 package/feeds/istore"
+  fi
+done
+
 # KPROBES / KPROBE_EVENTS / FTRACE 走 .config 的 CONFIG_KERNEL_* (21.02 Config-kernel.in 里有这些符号),
 # 不用改源码, 只在下面校验一下确实是可用符号。
 CK=config/Config-kernel.in
@@ -218,9 +323,14 @@ if ./scripts/feeds list 2>/dev/null | grep -qE '^(dae|daed|luci-app-daede|vmlinu
 else
   err "feeds 里没有 dae/daed (diy-part1 的 daede 源没生效)"
 fi
+if ./scripts/feeds list 2>/dev/null | grep -qE '^(luci-app-store|luci-lib-taskd|luci-lib-xterm|taskd)\b'; then
+  ok "feeds 里有 iStore"
+else
+  err "feeds 里没有 iStore (diy-part1 的 istore 源没生效)"
+fi
 
 echo "===== feeds 摘要 ====="
-./scripts/feeds list 2>/dev/null | grep -E '^(oaf|appfilter|luci-app-oaf|kmod-oaf|dae|daed|luci-app-daede|vmlinux-btf|golang)\b' || true
+./scripts/feeds list 2>/dev/null | grep -E '^(oaf|appfilter|luci-app-oaf|kmod-oaf|dae|daed|luci-app-daede|vmlinux-btf|golang|luci-app-store|luci-lib-taskd|taskd)\b' || true
 
 if [ "$fail" -ne 0 ]; then
   echo "ERROR: rax3000m diy-part2 检查失败" >&2
