@@ -14,4 +14,10 @@ fi
 #   echo 'src-git daed_luci https://github.com/QiuSimons/luci-app-daed.git' >> feeds.conf.default
 # fi
 
+# gdy666 的 lucky 源 (DDNS/端口转发/动态域名)
+# 提供: lucky luci-app-lucky luci-i18n-lucky-zh-cn
+if ! grep -q "luci-app-lucky" feeds.conf.default; then
+  echo 'src-git lucky https://github.com/gdy666/luci-app-lucky.git' >> feeds.conf.default
+fi
+
 cat feeds.conf.default
