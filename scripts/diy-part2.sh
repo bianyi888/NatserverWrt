@@ -3,10 +3,10 @@
 # 工作流调用位置: openwrt/ 目录下
 # 主要做: 主机名、IP、版本标识等轻量定制, 不动内核
 
-# 1. 默认 LAN IP 改成 192.168.100.1
-sed -i 's/192\.168\.1\.1/192.168.100.1/g' package/base-files/files/bin/config_generate
-if ! grep -q '192\.168\.100\.1' package/base-files/files/bin/config_generate; then
-  echo "ERROR: LAN 默认 IP 192.168.100.1 未生效" >&2; exit 1
+# 1. 默认 LAN IP 改成 192.168.5.1
+sed -i 's/192\.168\.1\.1/192.168.5.1/g' package/base-files/files/bin/config_generate
+if ! grep -q '192\.168\.5\.1' package/base-files/files/bin/config_generate; then
+  echo "ERROR: LAN 默认 IP 192.168.5.1 未生效" >&2; exit 1
 fi
 
 # 2. 默认主机名 -> NatserverWrt (顶栏侧边品牌等取 hostname)
