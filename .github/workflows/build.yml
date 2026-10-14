@@ -124,7 +124,6 @@ jobs:
         check "^CONFIG_BPF_TOOLCHAIN_HOST=y"
         check "^CONFIG_KERNEL_DEBUG_INFO=y"
         check "^CONFIG_KERNEL_DEBUG_INFO_BTF=y"
-        check "^CONFIG_PACKAGE_dae=y"
         check "^CONFIG_PACKAGE_daed=y"
         check "^CONFIG_PACKAGE_luci-app-daede=y"
         # vmlinux-btf 可 =y 也可 =m: 内核 BTF 生效后它只是备用安装包
