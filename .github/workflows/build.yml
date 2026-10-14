@@ -10,8 +10,8 @@ on:
   # 构建成功自动创建 Release, tag 形如 v20260925-abc1234 (日期+上游短SHA, 同上游版本自动去重)
 
 env:
-  REPO_URL: https://github.com/fanchmwrt/fanchmwrt-snapshot.git
-  REPO_BRANCH: fanchmwrt-26.05
+  REPO_URL: https://github.com/VIKINGYFY/immortalwrt.git
+  REPO_BRANCH: owrt
   CONFIG_FILE: config/re-ss-01-daed.config
   DIY_P1_SH: scripts/diy-part1.sh
   DIY_P2_SH: scripts/diy-part2.sh
@@ -21,7 +21,7 @@ permissions:
   contents: write
 
 jobs:
-  # 检查上游 fanchmwrt-snapshot 是否有新提交 (只在定时触发时跳过判断, 手动/push 总是构建)
+  # 检查上游 VIKINGYFY/immortalwrt 是否有新提交 (只在定时触发时跳过判断, 手动/push 总是构建)
   check:
     runs-on: ubuntu-22.04
     outputs:
@@ -86,7 +86,7 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
         df -h
 
-    - name: 克隆 fanchmwrt-snapshot 源码
+    - name: 克隆 immortalwrt 源码
       run: |
         git clone --depth 1 --branch $REPO_BRANCH $REPO_URL openwrt
         ls -lh openwrt/ | head -30
@@ -170,7 +170,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: env.BUILD_STATUS == 'success'
       with:
-        name: fanchmwrt-re-ss-01-daed
+        name: owrt-re-ss-01-daed
         path: firmware/*
 
     - name: 发布到 Release
@@ -182,6 +182,6 @@ jobs:
         target_commitish: ${{ github.sha }}
         files: firmware/*
         body: |
-          JDCloud RE-SS-01 (AX1800 Pro) 一体固件, 基于 fanchmwrt-snapshot 26.05, 内置 daed 全家桶, 开箱即用。
+          JDCloud RE-SS-01 (AX1800 Pro) 一体固件, 基于 VIKINGYFY/immortalwrt owrt, 内置 daed 全家桶, 开箱即用。
 
-          上游同步: fanchmwrt/fanchmwrt-snapshot@${{ needs.check.outputs.upstream }}
+          上游同步: VIKINGYFY/immortalwrt@${{ needs.check.outputs.upstream }}
