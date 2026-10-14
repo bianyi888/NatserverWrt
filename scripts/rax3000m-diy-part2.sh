@@ -295,23 +295,6 @@ for p in luci-app-oaf dae daed luci-app-daede vmlinux-btf; do
   fi
 done
 
-# ---------- 2. 最小品牌改动: 主机名 + 版本描述 ----------
-if [ -f package/base-files/files/bin/config_generate ]; then
-  sed -i "s/hostname='[^']*'/hostname='NatserverWrt'/g" package/base-files/files/bin/config_generate
-  grep -q "hostname='NatserverWrt'" package/base-files/files/bin/config_generate \
-    && ok "hostname -> NatserverWrt" || err "hostname NatserverWrt 未生效"
-else
-  err "找不到 package/base-files/files/bin/config_generate"
-fi
-
-if [ -f package/base-files/files/etc/openwrt_release ]; then
-  grep -q "DISTRIB_DESCRIPTION='NatserverWrt" package/base-files/files/etc/openwrt_release || \
-    echo "DISTRIB_DESCRIPTION='NatserverWrt RAX3000M eMMC + OAF7.0.1 + daed'" >> package/base-files/files/etc/openwrt_release
-  ok "openwrt_release 描述已写入"
-else
-  err "找不到 package/base-files/files/etc/openwrt_release"
-fi
-
 # ---------- 3. feeds 校验 ----------
 if ./scripts/feeds list 2>/dev/null | grep -qE '^(oaf|appfilter|luci-app-oaf|kmod-oaf)\b'; then
   ok "feeds 里有 OAF"
