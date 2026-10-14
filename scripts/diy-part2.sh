@@ -3,10 +3,10 @@
 # 工作流调用位置: openwrt/ 目录下
 # 主要做: 主机名、IP、版本标识等轻量定制, 不动内核
 
-# 1. 默认 LAN IP 改成 192.168.100.1
-sed -i 's/192\.168\.1\.1/192.168.100.1/g' package/base-files/files/bin/config_generate
+# 1. 默认 LAN IP 改成 192.168.5.1
+sed -i 's/192\.168\.1\.1/192.168.5.1/g' package/base-files/files/bin/config_generate
 if ! grep -q '192\.168\.100\.1' package/base-files/files/bin/config_generate; then
-  echo "ERROR: LAN 默认 IP 192.168.100.1 未生效" >&2; exit 1
+  echo "ERROR: LAN 默认 IP 192.168.5.1 未生效" >&2; exit 1
 fi
 
 # 2. 默认主机名 -> NatserverWrt (顶栏侧边品牌等取 hostname)
@@ -43,18 +43,18 @@ if [ "$(grep -c 'KERNEL_SIZE := 12288k' target/linux/qualcommax/image/ipq60xx.mk
 fi
 echo "OK: RE-SS-01 KERNEL_SIZE := 12288k"
 
-# 6. 浏览器标签页标题 + 登录窗口大标题 (fanchmwrt 主题硬编码 FanchmWrt, 与 hostname 无关)
-sed -i 's|<title>FanchmWrt</title>|<title>NatserverWrt</title>|' package/fcm/luci-theme-fanchmwrt/ucode/template/themes/fanchmwrt/header.ut
-if ! grep -q '<title>NatserverWrt</title>' package/fcm/luci-theme-fanchmwrt/ucode/template/themes/fanchmwrt/header.ut; then
-  echo "ERROR: 浏览器标签 <title>NatserverWrt</title> 未生效 (header.ut 结构变了?)" >&2; exit 1
+# 6. 默认主题设为 Aurora (首次开机时切换)
+mkdir -p files/etc/uci-defaults
+cat > files/etc/uci-defaults/99-set-aurora-theme <<'THEME_EOF'
+#!/bin/sh
+# 首次开机把默认主题切到 aurora
+if [ "$(uci -q get luci.main.mediaurlbase)" = "/luci-static/bootstrap" ]; then
+  uci set luci.main.mediaurlbase='/luci-static/aurora'
+  uci commit luci
 fi
-sed -i "s/'FanchmWrt'/'NatserverWrt'/" package/fcm/luci-theme-fanchmwrt/htdocs/luci-static/resources/view/fanchmwrt/sysauth.js
-if ! grep -q "'NatserverWrt'" package/fcm/luci-theme-fanchmwrt/htdocs/luci-static/resources/view/fanchmwrt/sysauth.js; then
-  echo "ERROR: 登录窗口标题 NatserverWrt 未生效 (sysauth.js 结构变了?)" >&2; exit 1
-fi
-if grep -q "'FanchmWrt'" package/fcm/luci-theme-fanchmwrt/htdocs/luci-static/resources/view/fanchmwrt/sysauth.js; then
-  echo "ERROR: sysauth.js 仍残留 'FanchmWrt'" >&2; exit 1
-fi
-echo "OK: 标签页/登录窗口标题 -> NatserverWrt"
+exit 0
+THEME_EOF
+chmod +x files/etc/uci-defaults/99-set-aurora-theme
+echo "OK: 默认主题 -> Aurora (uci-defaults)"
 
 echo "diy-part2 done"
