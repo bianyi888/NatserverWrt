@@ -15,3 +15,8 @@ fi
 # fi
 
 cat feeds.conf.default
+
+# Aurora 主题 (eamonxg/luci-theme-aurora)
+if ! grep -q "luci-theme-aurora" feeds.conf.default; then
+  echo 'src-git aurora https://github.com/eamonxg/luci-theme-aurora.git' >> feeds.conf.default
+fi
