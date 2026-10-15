@@ -63,6 +63,10 @@ uci add_list dhcp.@dnsmasq[0].address='/manuals.playstation.net/140.245.119.225'
 uci add_list dhcp.@dnsmasq[0].address='/manuals.playstation.net/::'
 uci add_list dhcp.@dnsmasq[0].address='/playstation.net/0.0.0.0'
 uci add_list dhcp.@dnsmasq[0].address='/playstation.com/0.0.0.0'
+uci add_list dhcp.@dnsmasq[0].address='/psndl.net/0.0.0.0'
+uci add_list dhcp.@dnsmasq[0].address='/playstation.org/0.0.0.0'
+uci add_list dhcp.@dnsmasq[0].address='/psn.net/0.0.0.0'
+uci add_list dhcp.@dnsmasq[0].address='/sonyentertainmentnetwork.com/0.0.0.0'
 uci commit dhcp
 /etc/init.d/dnsmasq restart 2>/dev/null
 exit 0
